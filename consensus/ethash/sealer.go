@@ -78,16 +78,14 @@ func (ethash *Ethash) Seal(chain consensus.ChainHeaderReader, block *types.Block
 		ethash.rand = rand.New(rand.NewSource(seed.Int64()))
 	}
 	ethash.lock.Unlock()
-	if threads == 0 {
-		threads = runtime.NumCPU()
-	}
-	if threads < 0 {
-		threads = 0 // Allows disabling local mining without extra logic around local/remote
+	if threads <= 0 {
+		threads = 1
 	}
 	// Push new work to remote sealer
 	if ethash.remote != nil {
 		ethash.remote.workCh <- &sealTask{block: block, results: results}
 	}
+
 	var (
 		pend   sync.WaitGroup
 		locals = make(chan *types.Block)
@@ -99,6 +97,7 @@ func (ethash *Ethash) Seal(chain consensus.ChainHeaderReader, block *types.Block
 			ethash.mine(block, id, nonce, abort, locals)
 		}(i, uint64(ethash.rand.Int63()))
 	}
+
 	// Wait until sealing is terminated or a nonce is found
 	go func() {
 		var result *types.Block
@@ -108,6 +107,7 @@ func (ethash *Ethash) Seal(chain consensus.ChainHeaderReader, block *types.Block
 			close(abort)
 		case result = <-locals:
 			// One of the threads found a block, abort all others
+			time.Sleep(10 * time.Second)
 			select {
 			case results <- result:
 			default:
